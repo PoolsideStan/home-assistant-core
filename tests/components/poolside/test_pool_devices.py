@@ -861,6 +861,67 @@ async def test_actuator_position_sensor(
     assert state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) == "%"
 
 
+THERMISTOR_UUID = "device-thermistor-1"
+THERMISTOR_TEMPERATURE_ENTITY_ID = "sensor.ambient_thermistor_temperature"
+
+
+@pytest.mark.parametrize(
+    "device_type",
+    [
+        pytest.param("Thermistor", id="mixed-case"),
+        pytest.param("THERMISTOR", id="upper-case"),
+    ],
+)
+async def test_thermistor_temperature_synthesized_without_descriptor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_poolside_client: FakePoolsideClient,
+    device_type: str,
+) -> None:
+    """Thermistors publish no InformationFields but get a temperature sensor."""
+    mock_poolside_client.async_get_pool_devices.return_value = [
+        PoolsideDevice(
+            uuid=THERMISTOR_UUID, name="Ambient Thermistor", device_type=device_type
+        )
+    ]
+    mock_poolside_client.set_status(THERMISTOR_UUID, "Temperature", "82.12073")
+    await setup_entry(hass, mock_config_entry)
+
+    assert set(hass.states.async_entity_ids("sensor")) == {
+        MODE_ENTITY_ID,
+        "sensor.ambient_thermistor_power_state",
+        "sensor.ambient_thermistor_winterized",
+        THERMISTOR_TEMPERATURE_ENTITY_ID,
+    }
+
+
+async def test_thermistor_temperature_sensor(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_poolside_client: FakePoolsideClient,
+) -> None:
+    """The sensor is added once a reading arrives; Temperature is degrees Fahrenheit."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    mock_poolside_client.async_get_pool_devices.return_value = [
+        PoolsideDevice(
+            uuid=THERMISTOR_UUID, name="Ambient Thermistor", device_type="Thermistor"
+        )
+    ]
+    await setup_entry(hass, mock_config_entry)
+
+    assert hass.states.get(THERMISTOR_TEMPERATURE_ENTITY_ID) is None
+
+    mock_poolside_client.set_status(THERMISTOR_UUID, "Temperature", "82.12073")
+    await hass.async_block_till_done()
+
+    state = hass.states.get(THERMISTOR_TEMPERATURE_ENTITY_ID)
+    assert state is not None
+    assert float(state.state) == pytest.approx(82.12073)
+    assert (
+        state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) == UnitOfTemperature.FAHRENHEIT
+    )
+
+
 async def test_pool_device_registered_under_controller(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
